@@ -9,17 +9,20 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type SafeDB struct {
 	mu   sync.Mutex
 	data map[string]string
+	time map[string]time.Time
 }
 
-func (db *SafeDB) SET(key string, value string) string {
+func (db *SafeDB) SET(key string, value string, expiry time.Time) string {
 
 	db.mu.Lock()
 	db.data[key] = value
+	db.time[key] = expiry
 	db.mu.Unlock()
 	return "+OK\r\n"
 
@@ -29,51 +32,15 @@ func (db *SafeDB) GET(key string) (string, bool) {
 
 	db.mu.Lock()
 	val, ok := db.data[key]
+	t, hasExpiry := db.time[key]
+	if hasExpiry && !t.IsZero() && time.Now().After(t) {
+		delete(db.data, key)
+		delete(db.time, key)
+		ok = false
+	}
 	db.mu.Unlock()
 	return val, ok
 
-}
-
-// not used
-func parseRESP(buf []byte) [][]string {
-
-	s := strings.Split(string(buf), "\r\n")
-	var res [][]string
-
-	n := 1
-	i := 0
-	//temp := []string{}
-
-	for i < len(s) {
-
-		if s[i] == "" {
-			break
-		}
-
-		var temp []string
-		N := strings.TrimPrefix(s[i], "*")
-		NumberOfArgs, err := strconv.Atoi(N)
-		if err != nil {
-			return res
-		}
-
-		i += 1
-
-		for n <= NumberOfArgs {
-
-			i += 1
-			temp = append(temp, s[i])
-			n++
-			i += 1
-
-		}
-
-		res = append(res, temp)
-		n = 1
-
-	}
-
-	return res
 }
 
 func readCommand(reader *bufio.Reader) ([]string, error) {
@@ -145,7 +112,18 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			}
 
 		case "SET":
-			conn.Write([]byte(database.SET(args[1], args[2])))
+
+			if len(args) > 3 && strings.ToUpper(args[3]) == "PX" {
+				expiryMillis, err := strconv.Atoi(args[4])
+				if err != nil {
+					conn.Write([]byte("-ERR invalid PX value\r\n"))
+					continue
+				}
+				expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
+				conn.Write([]byte(database.SET(args[1], args[2], expiryTime)))
+			} else {
+				conn.Write([]byte(database.SET(args[1], args[2], time.Time{})))
+			}
 
 		case "PING":
 			conn.Write([]byte("+PONG\r\n"))
@@ -159,6 +137,7 @@ func main() {
 
 	database := &SafeDB{
 		data: make(map[string]string),
+		time: make(map[string]time.Time),
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
