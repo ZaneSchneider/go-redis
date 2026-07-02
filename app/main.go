@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -73,6 +75,48 @@ func parseRESP(buf []byte) [][]string {
 	return res
 }
 
+func readCommand(reader *bufio.Reader) ([]string, error) {
+
+	res := []string{}
+	x, err := reader.ReadString('\n')
+	if err != nil {
+		return res, err
+	}
+	x = strings.TrimSpace(x)
+	x = strings.TrimPrefix(x, "*")
+	NumberOfArgs, err := strconv.Atoi(x)
+	if err != nil {
+		return res, err
+	}
+
+	i := 0
+
+	for i < NumberOfArgs {
+		x, err := reader.ReadString('\n')
+		if err != nil {
+			return res, err
+		}
+		x = strings.TrimSpace(x)
+		x = strings.TrimPrefix(x, "$")
+		y, err := strconv.Atoi(x)
+		if err != nil {
+			return res, err
+		}
+		buf := make([]byte, y)
+		z, err := io.ReadFull(reader, buf)
+		if err != nil {
+			return res, err
+		}
+		reader.Discard(2) // Discard the trailing \r\n
+
+		res = append(res, string(buf[:z]))
+		i++
+	}
+
+	return res, nil
+
+}
+
 func main() {
 
 	database := &SafeDB{
@@ -90,40 +134,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	buf := make([]byte, 1024)
+	//buf := make([]byte, 1024)
+	reader := bufio.NewReader(conn)
 
 	for {
-		n, err := conn.Read(buf)
+		args, err := readCommand(reader)
 		if err != nil {
+			fmt.Println("Error reading command: ", err.Error())
 			break
 		}
-
-		args := parseRESP(buf[:n])
 		fmt.Println("received:", args)
 
 		if len(args) == 0 {
 			continue
 		}
 
-		for _, cmd := range args {
+		switch args[0] {
 
-			switch cmd[0] {
-
-			case "GET":
-				val, ok := database.GET(cmd[1])
-				if !ok {
-					conn.Write([]byte("$-1\r\n"))
-				} else {
-					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
-				}
-
-			case "SET":
-				conn.Write([]byte(database.SET(cmd[1], cmd[2])))
-
-			case "PING":
-				conn.Write([]byte("+PONG\r\n"))
+		case "GET":
+			val, ok := database.GET(args[1])
+			if !ok {
+				conn.Write([]byte("$-1\r\n"))
+			} else {
+				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
 			}
 
+		case "SET":
+			conn.Write([]byte(database.SET(args[1], args[2])))
+
+		case "PING":
+			conn.Write([]byte("+PONG\r\n"))
 		}
 
 		//conn.Write([]byte("+PONG\r\n"))
