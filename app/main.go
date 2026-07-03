@@ -106,6 +106,15 @@ func errorReply(s string) []byte {
 	return []byte(fmt.Sprintf("-%s\r\n", s))
 }
 
+func writeResponse(conn net.Conn, data []byte) bool {
+	_, err := conn.Write(data)
+	if err != nil {
+		fmt.Println("Error writing response: ", err.Error())
+		return false
+	}
+	return true
+}
+
 func handleConnection(conn net.Conn, database *SafeDB) {
 
 	defer conn.Close()
@@ -133,44 +142,64 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "GET":
 			if len(args) < 2 {
-				conn.Write(errorReply("wrong number of arguments for 'GET' command"))
+				if !writeResponse(conn, errorReply("wrong number of arguments for 'GET' command")) {
+					return
+				}
 				continue
 			}
 			val, ok := database.GET(args[1])
 			if !ok {
-				conn.Write(nullBulk())
+				if !writeResponse(conn, nullBulk()) {
+					return
+				}
 			} else {
-				conn.Write(bulkString(val))
+				if !writeResponse(conn, bulkString(val)) {
+					return
+				}
 			}
 
 		case "SET":
 			if len(args) < 3 {
-				conn.Write(errorReply("wrong number of arguments for 'SET' command"))
+				if !writeResponse(conn, errorReply("wrong number of arguments for 'SET' command")) {
+					return
+				}
 				continue
 			}
 			if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
 				expiryMillis, err := strconv.Atoi(args[4])
 				if err != nil {
-					conn.Write(errorReply("invalid PX value"))
+					if !writeResponse(conn, errorReply("invalid PX value")) {
+						return
+					}
 					continue
 				}
 				expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
 				database.SET(args[1], args[2], expiryTime)
-				conn.Write(simpleString("OK"))
+				if !writeResponse(conn, simpleString("OK")) {
+					return
+				}
 			} else {
 				database.SET(args[1], args[2], time.Time{})
-				conn.Write(simpleString("OK"))
+				if !writeResponse(conn, simpleString("OK")) {
+					return
+				}
 			}
 
 		case "ECHO":
 			if len(args) < 2 {
-				conn.Write(errorReply("wrong number of arguments for 'ECHO' command"))
+				if !writeResponse(conn, errorReply("wrong number of arguments for 'ECHO' command")) {
+					return
+				}
 				continue
 			}
-			conn.Write(bulkString(args[1]))
+			if !writeResponse(conn, bulkString(args[1])) {
+				return
+			}
 
 		case "PING":
-			conn.Write(simpleString("PONG"))
+			if !writeResponse(conn, simpleString("PONG")) {
+				return
+			}
 		}
 
 		//conn.Write([]byte("+PONG\r\n"))
