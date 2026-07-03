@@ -101,9 +101,13 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			continue
 		}
 
-		switch args[0] {
+		switch strings.ToUpper(args[0]) {
 
 		case "GET":
+			if len(args) < 2 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'GET' command\r\n"))
+				continue
+			}
 			val, ok := database.GET(args[1])
 			if !ok {
 				conn.Write([]byte("$-1\r\n"))
@@ -112,8 +116,11 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			}
 
 		case "SET":
-
-			if len(args) > 3 && strings.ToUpper(args[3]) == "PX" {
+			if len(args) < 3 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'SET' command\r\n"))
+				continue
+			}
+			if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
 				expiryMillis, err := strconv.Atoi(args[4])
 				if err != nil {
 					conn.Write([]byte("-ERR invalid PX value\r\n"))
@@ -124,6 +131,13 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			} else {
 				conn.Write([]byte(database.SET(args[1], args[2], time.Time{})))
 			}
+
+		case "ECHO":
+			if len(args) < 2 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'ECHO' command\r\n"))
+				continue
+			}
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(args[1]), args[1])))
 
 		case "PING":
 			conn.Write([]byte("+PONG\r\n"))
