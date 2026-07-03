@@ -200,6 +200,16 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			if !writeResponse(conn, simpleString("PONG")) {
 				return
 			}
+
+		case "COMMAND":
+			if !writeResponse(conn, []byte("*0\r\n")) {
+				return
+			}
+
+		default:
+			if !writeResponse(conn, errorReply("unknown command '"+args[0]+"'")) {
+				return
+			}
 		}
 
 		//conn.Write([]byte("+PONG\r\n"))
