@@ -22,12 +22,11 @@ type SafeDB struct {
 	data map[string]entry
 }
 
-func (db *SafeDB) SET(key string, value string, expiry time.Time) string {
+func (db *SafeDB) SET(key string, value string, expiry time.Time) {
 
 	db.mu.Lock()
 	db.data[key] = entry{value: value, expiresAt: expiry}
 	db.mu.Unlock()
-	return "+OK\r\n"
 
 }
 
@@ -91,6 +90,22 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 
 }
 
+func bulkString(s string) []byte {
+	return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(s), s))
+}
+
+func simpleString(s string) []byte {
+	return []byte(fmt.Sprintf("+%s\r\n", s))
+}
+
+func nullBulk() []byte {
+	return []byte("$-1\r\n")
+}
+
+func errorReply(s string) []byte {
+	return []byte(fmt.Sprintf("-%s\r\n", s))
+}
+
 func handleConnection(conn net.Conn, database *SafeDB) {
 
 	defer conn.Close()
@@ -118,42 +133,44 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "GET":
 			if len(args) < 2 {
-				conn.Write([]byte("-ERR wrong number of arguments for 'GET' command\r\n"))
+				conn.Write(errorReply("wrong number of arguments for 'GET' command"))
 				continue
 			}
 			val, ok := database.GET(args[1])
 			if !ok {
-				conn.Write([]byte("$-1\r\n"))
+				conn.Write(nullBulk())
 			} else {
-				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
+				conn.Write(bulkString(val))
 			}
 
 		case "SET":
 			if len(args) < 3 {
-				conn.Write([]byte("-ERR wrong number of arguments for 'SET' command\r\n"))
+				conn.Write(errorReply("wrong number of arguments for 'SET' command"))
 				continue
 			}
 			if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
 				expiryMillis, err := strconv.Atoi(args[4])
 				if err != nil {
-					conn.Write([]byte("-ERR invalid PX value\r\n"))
+					conn.Write(errorReply("invalid PX value"))
 					continue
 				}
 				expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
-				conn.Write([]byte(database.SET(args[1], args[2], expiryTime)))
+				database.SET(args[1], args[2], expiryTime)
+				conn.Write(simpleString("OK"))
 			} else {
-				conn.Write([]byte(database.SET(args[1], args[2], time.Time{})))
+				database.SET(args[1], args[2], time.Time{})
+				conn.Write(simpleString("OK"))
 			}
 
 		case "ECHO":
 			if len(args) < 2 {
-				conn.Write([]byte("-ERR wrong number of arguments for 'ECHO' command\r\n"))
+				conn.Write(errorReply("wrong number of arguments for 'ECHO' command"))
 				continue
 			}
-			conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(args[1]), args[1])))
+			conn.Write(bulkString(args[1]))
 
 		case "PING":
-			conn.Write([]byte("+PONG\r\n"))
+			conn.Write(simpleString("PONG"))
 		}
 
 		//conn.Write([]byte("+PONG\r\n"))
