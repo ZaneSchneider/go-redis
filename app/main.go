@@ -70,6 +70,11 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 		if err != nil {
 			return res, err
 		}
+		if y <= 0 {
+			res = append(res, "")
+			i++
+			continue
+		}
 		buf := make([]byte, y)
 		z, err := io.ReadFull(reader, buf)
 		if err != nil {
@@ -86,6 +91,13 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 }
 
 func handleConnection(conn net.Conn, database *SafeDB) {
+
+	defer conn.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered from panic: ", r)
+		}
+	}()
 
 	reader := bufio.NewReader(conn)
 
