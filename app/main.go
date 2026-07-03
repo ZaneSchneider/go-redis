@@ -12,17 +12,20 @@ import (
 	"time"
 )
 
+type entry struct {
+	value     string
+	expiresAt time.Time
+}
+
 type SafeDB struct {
 	mu   sync.Mutex
-	data map[string]string
-	time map[string]time.Time
+	data map[string]entry
 }
 
 func (db *SafeDB) SET(key string, value string, expiry time.Time) string {
 
 	db.mu.Lock()
-	db.data[key] = value
-	db.time[key] = expiry
+	db.data[key] = entry{value: value, expiresAt: expiry}
 	db.mu.Unlock()
 	return "+OK\r\n"
 
@@ -31,15 +34,13 @@ func (db *SafeDB) SET(key string, value string, expiry time.Time) string {
 func (db *SafeDB) GET(key string) (string, bool) {
 
 	db.mu.Lock()
-	val, ok := db.data[key]
-	t, hasExpiry := db.time[key]
-	if hasExpiry && !t.IsZero() && time.Now().After(t) {
+	e, ok := db.data[key]
+	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 		delete(db.data, key)
-		delete(db.time, key)
 		ok = false
 	}
 	db.mu.Unlock()
-	return val, ok
+	return e.value, ok
 
 }
 
@@ -162,8 +163,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 func main() {
 
 	database := &SafeDB{
-		data: make(map[string]string),
-		time: make(map[string]time.Time),
+		data: make(map[string]entry),
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
