@@ -127,11 +127,15 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 	reader := bufio.NewReader(conn)
 
 	for {
+
 		args, err := readCommand(reader)
 		if err != nil {
-			fmt.Println("Error reading command: ", err.Error())
+			if err != io.EOF {
+				fmt.Println("Error reading command: ", err.Error())
+			}
 			break
 		}
+
 		fmt.Println("received:", args)
 
 		if len(args) == 0 {
