@@ -33,14 +33,35 @@ func (db *SafeDB) SET(key string, value string, expiry time.Time) {
 func (db *SafeDB) GET(key string) (string, bool) {
 
 	db.mu.Lock()
+	defer db.mu.Unlock()
 	e, ok := db.data[key]
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 		delete(db.data, key)
 		ok = false
 	}
-	db.mu.Unlock()
+
 	return e.value, ok
 
+}
+
+func (db *SafeDB) INCR(key string) (int, bool) {
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	e, ok := db.data[key]
+	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
+		delete(db.data, key)
+		ok = false
+		return 0, ok
+	}
+	var num int
+	var err error
+	if num, err = strconv.Atoi(e.value); err == nil {
+		num++
+		db.data[key] = entry{value: strconv.Itoa(num), expiresAt: e.expiresAt}
+	}
+
+	return num, ok
 }
 
 func readCommand(reader *bufio.Reader) ([]string, error) {
@@ -96,6 +117,10 @@ func bulkString(s string) []byte {
 
 func simpleString(s string) []byte {
 	return []byte(fmt.Sprintf("+%s\r\n", s))
+}
+
+func integerReply(i int) []byte {
+	return []byte(fmt.Sprintf(":%d\r\n", i))
 }
 
 func nullBulk() []byte {
@@ -187,6 +212,18 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				if !writeResponse(conn, simpleString("OK")) {
 					return
 				}
+			}
+
+		case "INCR":
+			if len(args) < 2 {
+				if !writeResponse(conn, errorReply("wrong number of arguments for 'INCR' command")) {
+					return
+				}
+				continue
+			}
+			num, _ := database.INCR(args[1])
+			if !writeResponse(conn, integerReply(num)) {
+				return
 			}
 
 		case "ECHO":
