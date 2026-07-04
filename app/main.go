@@ -49,10 +49,13 @@ func (db *SafeDB) INCR(key string) (int, bool) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	e, ok := db.data[key]
+	if !ok {
+		db.data[key] = entry{value: "1", expiresAt: time.Time{}}
+		return 1, true
+	}
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
-		delete(db.data, key)
-		ok = false
-		return 0, ok
+		db.data[key] = entry{value: "1", expiresAt: time.Time{}}
+		return 1, true
 	}
 	var num int
 	var err error
