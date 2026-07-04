@@ -44,10 +44,14 @@ func (db *SafeDB) GET(key string) (string, bool) {
 
 }
 
+// currently diverges slightly from real redis behavior
+// i.e. "+5" incriments to 6, "007" incriments to 8, int64 max overflows,
+// but real redis would return an error in these cases
 func (db *SafeDB) INCR(key string) (int, bool) {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
 	e, ok := db.data[key]
 	if !ok {
 		db.data[key] = entry{value: "1", expiresAt: time.Time{}}
@@ -57,13 +61,14 @@ func (db *SafeDB) INCR(key string) (int, bool) {
 		db.data[key] = entry{value: "1", expiresAt: time.Time{}}
 		return 1, true
 	}
-	var num int
-	var err error
-	if num, err = strconv.Atoi(e.value); err == nil {
-		num++
-		db.data[key] = entry{value: strconv.Itoa(num), expiresAt: e.expiresAt}
+
+	num, err := strconv.Atoi(e.value)
+	if err != nil {
+		return 0, false
 	}
 
+	num++
+	db.data[key] = entry{value: strconv.Itoa(num), expiresAt: e.expiresAt}
 	return num, ok
 }
 
@@ -174,7 +179,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "GET":
 			if len(args) < 2 {
-				if !writeResponse(conn, errorReply("wrong number of arguments for 'GET' command")) {
+				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'GET' command")) {
 					return
 				}
 				continue
@@ -192,7 +197,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "SET":
 			if len(args) < 3 {
-				if !writeResponse(conn, errorReply("wrong number of arguments for 'SET' command")) {
+				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'SET' command")) {
 					return
 				}
 				continue
@@ -200,7 +205,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
 				expiryMillis, err := strconv.Atoi(args[4])
 				if err != nil {
-					if !writeResponse(conn, errorReply("invalid PX value")) {
+					if !writeResponse(conn, errorReply("ERR invalid PX value")) {
 						return
 					}
 					continue
@@ -219,19 +224,25 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "INCR":
 			if len(args) < 2 {
-				if !writeResponse(conn, errorReply("wrong number of arguments for 'INCR' command")) {
+				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'INCR' command")) {
 					return
 				}
 				continue
 			}
-			num, _ := database.INCR(args[1])
-			if !writeResponse(conn, integerReply(num)) {
-				return
+			num, ok := database.INCR(args[1])
+			if !ok {
+				if !writeResponse(conn, errorReply("ERR value is not an integer or out of range")) {
+					return
+				}
+			} else {
+				if !writeResponse(conn, integerReply(num)) {
+					return
+				}
 			}
 
 		case "ECHO":
 			if len(args) < 2 {
-				if !writeResponse(conn, errorReply("wrong number of arguments for 'ECHO' command")) {
+				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'ECHO' command")) {
 					return
 				}
 				continue
@@ -251,7 +262,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			}
 
 		default:
-			if !writeResponse(conn, errorReply("unknown command '"+args[0]+"'")) {
+			if !writeResponse(conn, errorReply("ERR unknown command '"+args[0]+"'")) {
 				return
 			}
 		}
