@@ -135,6 +135,10 @@ func nullBulk() []byte {
 	return []byte("$-1\r\n")
 }
 
+func arrayReply(queue [][]string) []byte {
+	return []byte(fmt.Sprintf("*%d\r\n", len(queue)))
+}
+
 func errorReply(s string) []byte {
 	return []byte(fmt.Sprintf("-%s\r\n", s))
 }
@@ -157,6 +161,8 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 		}
 	}()
 
+	var queue [][]string
+	var multi bool = false
 	reader := bufio.NewReader(conn)
 
 	for {
@@ -238,6 +244,24 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				if !writeResponse(conn, integerReply(num)) {
 					return
 				}
+			}
+
+		case "MULTI":
+			if !writeResponse(conn, simpleString("OK")) {
+				return
+			}
+			multi = true
+
+		case "EXEC":
+			if !multi {
+				if !writeResponse(conn, errorReply("ERR EXEC without MULTI")) {
+					return
+				}
+			} else {
+				if !writeResponse(conn, arrayReply(queue)) {
+					return
+				}
+				multi = false
 			}
 
 		case "ECHO":
