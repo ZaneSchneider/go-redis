@@ -18,14 +18,16 @@ type entry struct {
 }
 
 type SafeDB struct {
-	mu   sync.Mutex
-	data map[string]entry
+	mu       sync.Mutex
+	data     map[string]entry
+	versions map[string]uint64
 }
 
 func (db *SafeDB) SET(key string, value string, expiry time.Time) {
 
 	db.mu.Lock()
 	db.data[key] = entry{value: value, expiresAt: expiry}
+	db.versions[key]++
 	db.mu.Unlock()
 
 }
@@ -37,6 +39,7 @@ func (db *SafeDB) GET(key string) (string, bool) {
 	e, ok := db.data[key]
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 		delete(db.data, key)
+		db.versions[key]++
 		ok = false
 	}
 
@@ -55,10 +58,12 @@ func (db *SafeDB) INCR(key string) (int, bool) {
 	e, ok := db.data[key]
 	if !ok {
 		db.data[key] = entry{value: "1", expiresAt: time.Time{}}
+		db.versions[key]++
 		return 1, true
 	}
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 		db.data[key] = entry{value: "1", expiresAt: time.Time{}}
+		db.versions[key]++
 		return 1, true
 	}
 
@@ -69,6 +74,7 @@ func (db *SafeDB) INCR(key string) (int, bool) {
 
 	num++
 	db.data[key] = entry{value: strconv.Itoa(num), expiresAt: e.expiresAt}
+	db.versions[key]++
 	return num, ok
 }
 
@@ -133,6 +139,10 @@ func integerReply(i int) []byte {
 
 func nullBulk() []byte {
 	return []byte("$-1\r\n")
+}
+
+func nullArray() []byte {
+	return []byte("*-1\r\n")
 }
 
 func arrayReply(queue [][]string) []byte {
@@ -228,6 +238,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 	}()
 
 	var queue [][]string
+	var versions map[string]uint64 = make(map[string]uint64)
 	var multi bool = false
 	reader := bufio.NewReader(conn)
 
@@ -264,6 +275,22 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				writeResponse(conn, errorReply("ERR EXEC without MULTI"))
 				continue
 			}
+
+			aborted := false
+			for key, version := range versions {
+				if database.versions[key] != version {
+					aborted = true
+					break
+				}
+			}
+			if aborted {
+				writeResponse(conn, nullArray())
+				queue = [][]string{}
+				multi = false
+				versions = make(map[string]uint64)
+				continue
+			}
+
 			multi = false
 			responses := []byte(arrayReply(queue))
 			for _, cmd := range queue {
@@ -271,6 +298,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			}
 			writeResponse(conn, responses)
 			queue = [][]string{}
+			versions = make(map[string]uint64)
 			continue
 
 		case "DISCARD":
@@ -280,6 +308,16 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			}
 			multi = false
 			queue = [][]string{}
+			versions = make(map[string]uint64)
+			writeResponse(conn, simpleString("OK"))
+			continue
+
+		case "WATCH":
+			if multi {
+				writeResponse(conn, errorReply("ERR WATCH inside MULTI is not allowed"))
+				continue
+			}
+			versions[args[1]] = database.versions[args[1]]
 			writeResponse(conn, simpleString("OK"))
 			continue
 
@@ -300,7 +338,8 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 func main() {
 
 	database := &SafeDB{
-		data: make(map[string]entry),
+		data:     make(map[string]entry),
+		versions: make(map[string]uint64),
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
