@@ -152,6 +152,72 @@ func writeResponse(conn net.Conn, data []byte) bool {
 	return true
 }
 
+func executeCommand(args []string, database *SafeDB) []byte {
+
+	if len(args) == 0 {
+		return errorReply("ERR no command provided")
+	}
+
+	switch strings.ToUpper(args[0]) {
+
+	case "GET":
+		if len(args) < 2 {
+			return errorReply("ERR wrong number of arguments for 'GET' command")
+		}
+		val, ok := database.GET(args[1])
+		if !ok {
+			return nullBulk()
+		} else {
+			return bulkString(val)
+		}
+
+	case "SET":
+		if len(args) < 3 {
+			return errorReply("ERR wrong number of arguments for 'SET' command")
+		}
+		if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
+			expiryMillis, err := strconv.Atoi(args[4])
+			if err != nil {
+				return errorReply("ERR invalid PX value")
+			}
+			expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
+			database.SET(args[1], args[2], expiryTime)
+			return simpleString("OK")
+		} else {
+			database.SET(args[1], args[2], time.Time{})
+			return simpleString("OK")
+		}
+
+	case "INCR":
+		if len(args) < 2 {
+			return errorReply("ERR wrong number of arguments for 'INCR' command")
+		}
+		num, ok := database.INCR(args[1])
+		if !ok {
+			return errorReply("ERR value is not an integer or out of range")
+		} else {
+			return integerReply(num)
+		}
+
+	case "ECHO":
+		if len(args) < 2 {
+			return errorReply("ERR wrong number of arguments for 'ECHO' command")
+		}
+		return bulkString(args[1])
+
+	case "PING":
+		return simpleString("PONG")
+
+	case "COMMAND":
+		return []byte("*0\r\n")
+
+	default:
+		return errorReply("ERR unknown command '" + args[0] + "'")
+
+		//conn.Write([]byte("+PONG\r\n"))
+	}
+}
+
 func handleConnection(conn net.Conn, database *SafeDB) {
 
 	defer conn.Close()
@@ -183,115 +249,51 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		switch strings.ToUpper(args[0]) {
 
-		case "GET":
-			if len(args) < 2 {
-				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'GET' command")) {
-					return
-				}
-				continue
-			}
-			val, ok := database.GET(args[1])
-			if !ok {
-				if !writeResponse(conn, nullBulk()) {
-					return
-				}
-			} else {
-				if !writeResponse(conn, bulkString(val)) {
-					return
-				}
-			}
-
-		case "SET":
-			if len(args) < 3 {
-				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'SET' command")) {
-					return
-				}
-				continue
-			}
-			if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
-				expiryMillis, err := strconv.Atoi(args[4])
-				if err != nil {
-					if !writeResponse(conn, errorReply("ERR invalid PX value")) {
-						return
-					}
-					continue
-				}
-				expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
-				database.SET(args[1], args[2], expiryTime)
-				if !writeResponse(conn, simpleString("OK")) {
-					return
-				}
-			} else {
-				database.SET(args[1], args[2], time.Time{})
-				if !writeResponse(conn, simpleString("OK")) {
-					return
-				}
-			}
-
-		case "INCR":
-			if len(args) < 2 {
-				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'INCR' command")) {
-					return
-				}
-				continue
-			}
-			num, ok := database.INCR(args[1])
-			if !ok {
-				if !writeResponse(conn, errorReply("ERR value is not an integer or out of range")) {
-					return
-				}
-			} else {
-				if !writeResponse(conn, integerReply(num)) {
-					return
-				}
-			}
-
 		case "MULTI":
-			if !writeResponse(conn, simpleString("OK")) {
-				return
+			if multi {
+				writeResponse(conn, errorReply("ERR MULTI calls can not be nested"))
+				continue
 			}
 			multi = true
+			queue = [][]string{}
+			writeResponse(conn, simpleString("OK"))
+			continue
 
 		case "EXEC":
 			if !multi {
-				if !writeResponse(conn, errorReply("ERR EXEC without MULTI")) {
-					return
-				}
-			} else {
-				if !writeResponse(conn, arrayReply(queue)) {
-					return
-				}
-				multi = false
-			}
-
-		case "ECHO":
-			if len(args) < 2 {
-				if !writeResponse(conn, errorReply("ERR wrong number of arguments for 'ECHO' command")) {
-					return
-				}
+				writeResponse(conn, errorReply("ERR EXEC without MULTI"))
 				continue
 			}
-			if !writeResponse(conn, bulkString(args[1])) {
-				return
+			multi = false
+			responses := []byte(arrayReply(queue))
+			for _, cmd := range queue {
+				responses = append(responses, executeCommand(cmd, database)...)
 			}
+			writeResponse(conn, responses)
+			queue = [][]string{}
+			continue
 
-		case "PING":
-			if !writeResponse(conn, simpleString("PONG")) {
-				return
+		case "DISCARD":
+			if !multi {
+				writeResponse(conn, errorReply("ERR DISCARD without MULTI"))
+				continue
 			}
-
-		case "COMMAND":
-			if !writeResponse(conn, []byte("*0\r\n")) {
-				return
-			}
+			multi = false
+			queue = [][]string{}
+			writeResponse(conn, simpleString("OK"))
+			continue
 
 		default:
-			if !writeResponse(conn, errorReply("ERR unknown command '"+args[0]+"'")) {
-				return
+			if multi {
+				queue = append(queue, args)
+				writeResponse(conn, simpleString("QUEUED"))
+				continue
 			}
+			writeResponse(conn, executeCommand(args, database))
+			continue
+
 		}
 
-		//conn.Write([]byte("+PONG\r\n"))
 	}
 }
 
