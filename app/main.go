@@ -321,6 +321,15 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			writeResponse(conn, simpleString("OK"))
 			continue
 
+		case "UNWATCH":
+			if multi {
+				writeResponse(conn, errorReply("ERR UNWATCH inside MULTI is not allowed"))
+				continue
+			}
+			versions = make(map[string]uint64)
+			writeResponse(conn, simpleString("OK"))
+			continue
+
 		default:
 			if multi {
 				queue = append(queue, args)
