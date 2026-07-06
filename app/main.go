@@ -47,6 +47,14 @@ func (db *SafeDB) GET(key string) (string, bool) {
 
 }
 
+func (db *SafeDB) getVersion(key string) uint64 {
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.versions[key]
+
+}
+
 // currently diverges slightly from real redis behavior
 // i.e. "+5" incriments to 6, "007" incriments to 8, int64 max overflows,
 // but real redis would return an error in these cases
@@ -278,7 +286,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 			aborted := false
 			for key, version := range versions {
-				if database.versions[key] != version {
+				if database.getVersion(key) != version {
 					aborted = true
 					break
 				}
@@ -317,7 +325,8 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				writeResponse(conn, errorReply("ERR WATCH inside MULTI is not allowed"))
 				continue
 			}
-			versions[args[1]] = database.versions[args[1]]
+
+			versions[args[1]] = database.getVersion(args[1])
 			writeResponse(conn, simpleString("OK"))
 			continue
 
