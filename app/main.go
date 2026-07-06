@@ -94,7 +94,7 @@ func (db *SafeDB) incrLocked(key string) (int, bool) {
 	return num, ok
 }
 
-func (db *SafeDB) execTransaction(queue [][]string, versions map[string]uint64) ([]byte, bool) {
+func (db *SafeDB) execTransaction(queue [][]string, versions map[string]uint64) []byte {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -108,7 +108,7 @@ func (db *SafeDB) execTransaction(queue [][]string, versions map[string]uint64) 
 	}
 
 	if aborted {
-		return nullArray(), false
+		return nullArray()
 	}
 
 	responses := []byte(arrayReply(queue))
@@ -118,7 +118,7 @@ func (db *SafeDB) execTransaction(queue [][]string, versions map[string]uint64) 
 		responses = append(responses, resp...)
 	}
 
-	return responses, true
+	return responses
 }
 
 func (db *SafeDB) executeLocked(args []string) []byte {
@@ -348,7 +348,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			resp, _ := database.execTransaction(queue, versions)
+			resp := database.execTransaction(queue, versions)
 			writeResponse(conn, resp)
 			multi = false
 			dirty = false
