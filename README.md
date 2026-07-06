@@ -30,10 +30,6 @@ redis-cli GET language
 - **WATCH via version counters.** Every write (including a lazy-expiry delete) bumps a per-key version. `WATCH` snapshots versions; `EXEC` aborts on any mismatch. Counters only increment, so the check is immune to ABA problems.
 - **Parsing.** Commands are decoded from a buffered TCP stream with length-prefixed reads — no line-splitting shortcuts.
 
-## Testing
-
-Verified against real Redis behavior using scripted `redis-cli` sessions (`manual_test.sh`) and RESP-level tests that exercise concurrent `WATCH`/`EXEC` interleavings, run with Go's race detector enabled.
-
 ## Known divergences
 
 `INCR` is more lenient than real Redis on non-canonical integers (e.g. `"+5"`, `"007"`) — documented in the source.
