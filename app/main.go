@@ -12,6 +12,15 @@ import (
 	"time"
 )
 
+var arity = map[string]int{
+	"GET":     2,
+	"SET":     3,
+	"INCR":    2,
+	"ECHO":    2,
+	"PING":    1,
+	"COMMAND": 1,
+}
+
 type entry struct {
 	value     string
 	expiresAt time.Time
@@ -23,26 +32,10 @@ type SafeDB struct {
 	versions map[string]uint64
 }
 
-func (db *SafeDB) SET(key string, value string, expiry time.Time) {
-
-	db.mu.Lock()
-	db.setLocked(key, value, expiry)
-	db.mu.Unlock()
-
-}
-
 func (db *SafeDB) setLocked(key string, value string, expiry time.Time) {
 
 	db.data[key] = entry{value: value, expiresAt: expiry}
 	db.versions[key]++
-
-}
-
-func (db *SafeDB) GET(key string) (string, bool) {
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	return db.getLocked(key)
 
 }
 
@@ -59,7 +52,7 @@ func (db *SafeDB) getLocked(key string) (string, bool) {
 
 }
 
-func (db *SafeDB) WATCH(keys []string) map[string]uint64 {
+func (db *SafeDB) watch(keys []string) map[string]uint64 {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -76,14 +69,6 @@ func (db *SafeDB) WATCH(keys []string) map[string]uint64 {
 // currently diverges slightly from real redis behavior
 // i.e. "+5" incriments to 6, "007" incriments to 8, int64 max overflows,
 // but real redis would return an error in these cases
-func (db *SafeDB) INCR(key string) (int, bool) {
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	return db.incrLocked(key)
-
-}
-
 func (db *SafeDB) incrLocked(key string) (int, bool) {
 
 	e, ok := db.data[key]
@@ -109,7 +94,7 @@ func (db *SafeDB) incrLocked(key string) (int, bool) {
 	return num, ok
 }
 
-func (db *SafeDB) EXEC_TRANSACTION(queue [][]string, versions map[string]uint64) ([]byte, bool) {
+func (db *SafeDB) execTransaction(queue [][]string, versions map[string]uint64) ([]byte, bool) {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -201,7 +186,7 @@ func (db *SafeDB) executeLocked(args []string) []byte {
 
 }
 
-func (db *SafeDB) EXECUTE_COMMAND(args []string) []byte {
+func (db *SafeDB) executeCommand(args []string) []byte {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	return db.executeLocked(args)
@@ -254,6 +239,19 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 
 }
 
+func validate(args []string) []byte {
+
+	min, known := arity[strings.ToUpper(args[0])]
+
+	if !known {
+		return errorReply("ERR unknown command '" + args[0] + "'")
+	}
+	if len(args) < min {
+		return errorReply("ERR wrong number of arguments for '" + args[0] + "' command")
+	}
+	return nil
+}
+
 func bulkString(s string) []byte {
 	return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(s), s))
 }
@@ -303,6 +301,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 	var queue [][]string
 	var versions map[string]uint64 = make(map[string]uint64)
 	var multi bool = false
+	var dirty bool = false
 	reader := bufio.NewReader(conn)
 
 	for {
@@ -329,6 +328,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 			multi = true
+			dirty = false
 			queue = [][]string{}
 			writeResponse(conn, simpleString("OK"))
 			continue
@@ -339,9 +339,19 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			resp, _ := database.EXEC_TRANSACTION(queue, versions)
+			if dirty {
+				writeResponse(conn, errorReply("EXECABORT Transaction discarded because of previous errors."))
+				multi = false
+				dirty = false
+				queue = [][]string{}
+				versions = make(map[string]uint64)
+				continue
+			}
+
+			resp, _ := database.execTransaction(queue, versions)
 			writeResponse(conn, resp)
 			multi = false
+			dirty = false
 			queue = [][]string{}
 			versions = make(map[string]uint64)
 			continue
@@ -352,6 +362,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 			multi = false
+			dirty = false
 			queue = [][]string{}
 			versions = make(map[string]uint64)
 			writeResponse(conn, simpleString("OK"))
@@ -367,7 +378,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			for k, v := range database.WATCH(args[1:]) {
+			for k, v := range database.watch(args[1:]) {
 				if _, ok := versions[k]; !ok {
 					versions[k] = v
 				}
@@ -387,11 +398,19 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		default:
 			if multi {
+
+				err := validate(args)
+				if err != nil {
+					dirty = true
+					writeResponse(conn, err)
+					continue
+				}
+
 				queue = append(queue, args)
 				writeResponse(conn, simpleString("QUEUED"))
 				continue
 			}
-			writeResponse(conn, database.EXECUTE_COMMAND(args))
+			writeResponse(conn, database.executeCommand(args))
 			continue
 
 		}
