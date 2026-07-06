@@ -1,0 +1,37 @@
+# ---- Go build output ----
+# your_program.sh builds to /tmp, so nothing lands here normally,
+# but these catch a stray local `go build`.
+/redis
+/server
+/redis-server
+/codecrafters-redis-go
+/app/app
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ---- Go test / profiling artifacts ----
+*.test
+*.out
+coverage.*
+*.prof
+
+# ---- Local run logs ----
+*.log
+
+# ---- Go workspace (local-only, not for this repo) ----
+go.work
+go.work.sum
+
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
+
+# ---- Editors / IDEs ----
+.vscode/
+.idea/
+*.swp
+*~
+
+*.py

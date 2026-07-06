@@ -291,72 +291,6 @@ func writeResponse(conn net.Conn, data []byte) bool {
 	return true
 }
 
-func executeCommand(args []string, database *SafeDB) []byte {
-
-	if len(args) == 0 {
-		return errorReply("ERR no command provided")
-	}
-
-	switch strings.ToUpper(args[0]) {
-
-	case "GET":
-		if len(args) < 2 {
-			return errorReply("ERR wrong number of arguments for 'GET' command")
-		}
-		val, ok := database.GET(args[1])
-		if !ok {
-			return nullBulk()
-		} else {
-			return bulkString(val)
-		}
-
-	case "SET":
-		if len(args) < 3 {
-			return errorReply("ERR wrong number of arguments for 'SET' command")
-		}
-		if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
-			expiryMillis, err := strconv.Atoi(args[4])
-			if err != nil {
-				return errorReply("ERR invalid PX value")
-			}
-			expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
-			database.SET(args[1], args[2], expiryTime)
-			return simpleString("OK")
-		} else {
-			database.SET(args[1], args[2], time.Time{})
-			return simpleString("OK")
-		}
-
-	case "INCR":
-		if len(args) < 2 {
-			return errorReply("ERR wrong number of arguments for 'INCR' command")
-		}
-		num, ok := database.INCR(args[1])
-		if !ok {
-			return errorReply("ERR value is not an integer or out of range")
-		} else {
-			return integerReply(num)
-		}
-
-	case "ECHO":
-		if len(args) < 2 {
-			return errorReply("ERR wrong number of arguments for 'ECHO' command")
-		}
-		return bulkString(args[1])
-
-	case "PING":
-		return simpleString("PONG")
-
-	case "COMMAND":
-		return []byte("*0\r\n")
-
-	default:
-		return errorReply("ERR unknown command '" + args[0] + "'")
-
-		//conn.Write([]byte("+PONG\r\n"))
-	}
-}
-
 func handleConnection(conn net.Conn, database *SafeDB) {
 
 	defer conn.Close()
@@ -381,7 +315,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			break
 		}
 
-		fmt.Println("received:", args)
+		//fmt.Println("received:", args)
 
 		if len(args) == 0 {
 			continue
@@ -433,7 +367,11 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			versions = database.WATCH(args[1:])
+			for k, v := range database.WATCH(args[1:]) {
+				if _, ok := versions[k]; !ok {
+					versions[k] = v
+				}
+			}
 
 			writeResponse(conn, simpleString("OK"))
 			continue
