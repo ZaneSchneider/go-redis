@@ -55,6 +55,20 @@ func (db *SafeDB) getVersion(key string) uint64 {
 
 }
 
+func (db *SafeDB) WATCH(keys []string) map[string]uint64 {
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	versions := make(map[string]uint64)
+	for _, key := range keys {
+		versions[key] = db.versions[key]
+	}
+
+	return versions
+
+}
+
 // currently diverges slightly from real redis behavior
 // i.e. "+5" incriments to 6, "007" incriments to 8, int64 max overflows,
 // but real redis would return an error in these cases
@@ -330,9 +344,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			for i := 1; i < len(args); i++ {
-				versions[args[i]] = database.getVersion(args[i])
-			}
+			versions = database.WATCH(args[1:])
 
 			writeResponse(conn, simpleString("OK"))
 			continue
