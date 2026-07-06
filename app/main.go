@@ -326,7 +326,10 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			versions[args[1]] = database.getVersion(args[1])
+			for i := 1; i < len(args); i++ {
+				versions[args[i]] = database.getVersion(args[i])
+			}
+
 			writeResponse(conn, simpleString("OK"))
 			continue
 
