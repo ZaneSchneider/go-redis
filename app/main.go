@@ -321,6 +321,10 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			continue
 
 		case "WATCH":
+			if len(args) < 2 {
+				writeResponse(conn, errorReply("ERR wrong number of arguments for 'WATCH' command"))
+				continue
+			}
 			if multi {
 				writeResponse(conn, errorReply("ERR WATCH inside MULTI is not allowed"))
 				continue
