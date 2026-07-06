@@ -1,33 +1,47 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/09034a6e-d370-4d03-aa8d-98ea332f5a98)](https://app.codecrafters.io/users/ZaneSchneider?r=2qF)
+# go-redis
 
-This is a starting point for Go solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+A Redis-compatible in-memory data store written from scratch in Go, using only the standard library. The wire protocol, concurrency model, and transaction semantics are implemented by hand.
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
+## Implemented
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+- RESP wire protocol over raw TCP, decoded by a hand-rolled streaming parser (binary-safe bulk strings)
+- Core commands: `PING`, `ECHO`, `GET`, `SET` (with `PX` millisecond expiry), `INCR`
+- Lazy key expiry, matching real Redis semantics
+- Concurrent clients: one goroutine per connection over a mutex-guarded store
+- Transactions: `MULTI` / `EXEC` / `DISCARD`, with queue-time command validation and `EXECABORT` semantics
+- Optimistic locking: `WATCH` / `UNWATCH` via per-key version counters; a transaction executes atomically inside a single critical section and aborts if any watched key changed
 
-# Passing the first stage
-
-The entry point for your Redis implementation is in `app/main.go`. Study and
-uncomment the relevant code, then run the command below to execute the tests on
-our servers:
+## Run
 
 ```sh
-codecrafters submit
+go run ./app
 ```
 
-That's all!
+The server listens on `:6379`. Talk to it with the standard `redis-cli`:
 
-# Stage 2 & beyond
+```sh
+redis-cli SET language go
+redis-cli GET language
+```
 
-Note: This section is for stages 2 and beyond.
+## Design notes
 
-1. Ensure you have `go (1.26)` installed locally
-1. Run `./your_program.sh` to run your Redis server, which is implemented in
-   `app/main.go`.
-1. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+- **Concurrency model.** Each client connection gets its own goroutine; shared state sits behind a mutex. Single commands lock per operation, while `EXEC` holds the lock for the entire transaction — approximating the atomicity real Redis gets from single-threaded execution.
+- **WATCH via version counters.** Every write (including a lazy-expiry delete) bumps a per-key version. `WATCH` snapshots versions; `EXEC` aborts on any mismatch. Counters only increment, so the check is immune to ABA problems.
+- **Parsing.** Commands are decoded from a buffered TCP stream with length-prefixed reads — no line-splitting shortcuts.
+
+## Testing
+
+Verified against real Redis behavior using scripted `redis-cli` sessions (`manual_test.sh`) and RESP-level tests that exercise concurrent `WATCH`/`EXEC` interleavings, run with Go's race detector enabled.
+
+## Known divergences
+
+`INCR` is more lenient than real Redis on non-canonical integers (e.g. `"+5"`, `"007"`) — documented in the source.
+
+## Roadmap
+
+Integration test suite in CI, configuration and graceful shutdown, Docker packaging, benchmarks against `redis-server`, master–replica replication.
+
+## Attribution
+
+Started from the [CodeCrafters](https://codecrafters.io) "Build Your Own Redis" challenge, which I used as a stage roadmap. The implementation and tests are my own.

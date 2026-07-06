@@ -314,8 +314,6 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			break
 		}
 
-		//fmt.Println("received:", args)
-
 		if len(args) == 0 {
 			continue
 		}
@@ -440,7 +438,5 @@ func main() {
 		}
 		go handleConnection(conn, database)
 	}
-
-	//buf := make([]byte, 1024)
 
 }
