@@ -26,9 +26,15 @@ type SafeDB struct {
 func (db *SafeDB) SET(key string, value string, expiry time.Time) {
 
 	db.mu.Lock()
+	db.setLocked(key, value, expiry)
+	db.mu.Unlock()
+
+}
+
+func (db *SafeDB) setLocked(key string, value string, expiry time.Time) {
+
 	db.data[key] = entry{value: value, expiresAt: expiry}
 	db.versions[key]++
-	db.mu.Unlock()
 
 }
 
@@ -36,6 +42,12 @@ func (db *SafeDB) GET(key string) (string, bool) {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	return db.getLocked(key)
+
+}
+
+func (db *SafeDB) getLocked(key string) (string, bool) {
+
 	e, ok := db.data[key]
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 		delete(db.data, key)
@@ -44,14 +56,6 @@ func (db *SafeDB) GET(key string) (string, bool) {
 	}
 
 	return e.value, ok
-
-}
-
-func (db *SafeDB) getVersion(key string) uint64 {
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	return db.versions[key]
 
 }
 
@@ -76,6 +80,11 @@ func (db *SafeDB) INCR(key string) (int, bool) {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	return db.incrLocked(key)
+
+}
+
+func (db *SafeDB) incrLocked(key string) (int, bool) {
 
 	e, ok := db.data[key]
 	if !ok {
@@ -98,6 +107,104 @@ func (db *SafeDB) INCR(key string) (int, bool) {
 	db.data[key] = entry{value: strconv.Itoa(num), expiresAt: e.expiresAt}
 	db.versions[key]++
 	return num, ok
+}
+
+func (db *SafeDB) EXEC_TRANSACTION(queue [][]string, versions map[string]uint64) ([]byte, bool) {
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	aborted := false
+	for key, version := range versions {
+		if db.versions[key] != version {
+			aborted = true
+			break
+		}
+	}
+
+	if aborted {
+		return nullArray(), false
+	}
+
+	responses := []byte(arrayReply(queue))
+	for _, cmd := range queue {
+
+		resp := db.executeLocked(cmd)
+		responses = append(responses, resp...)
+	}
+
+	return responses, true
+}
+
+func (db *SafeDB) executeLocked(args []string) []byte {
+
+	if len(args) == 0 {
+		return errorReply("ERR no command provided")
+	}
+
+	switch strings.ToUpper(args[0]) {
+
+	case "GET":
+		if len(args) < 2 {
+			return errorReply("ERR wrong number of arguments for 'GET' command")
+		}
+		val, ok := db.getLocked(args[1])
+		if !ok {
+			return nullBulk()
+		} else {
+			return bulkString(val)
+		}
+
+	case "SET":
+		if len(args) < 3 {
+			return errorReply("ERR wrong number of arguments for 'SET' command")
+		}
+		if len(args) >= 5 && strings.ToUpper(args[3]) == "PX" {
+			expiryMillis, err := strconv.Atoi(args[4])
+			if err != nil {
+				return errorReply("ERR invalid PX value")
+			}
+			expiryTime := time.Now().Add(time.Duration(expiryMillis) * time.Millisecond)
+			db.setLocked(args[1], args[2], expiryTime)
+			return simpleString("OK")
+		} else {
+			db.setLocked(args[1], args[2], time.Time{})
+			return simpleString("OK")
+		}
+
+	case "INCR":
+		if len(args) < 2 {
+			return errorReply("ERR wrong number of arguments for 'INCR' command")
+		}
+		num, ok := db.incrLocked(args[1])
+		if !ok {
+			return errorReply("ERR value is not an integer or out of range")
+		} else {
+			return integerReply(num)
+		}
+
+	case "ECHO":
+		if len(args) < 2 {
+			return errorReply("ERR wrong number of arguments for 'ECHO' command")
+		}
+		return bulkString(args[1])
+
+	case "PING":
+		return simpleString("PONG")
+
+	case "COMMAND":
+		return []byte("*0\r\n")
+
+	default:
+		return errorReply("ERR unknown command '" + args[0] + "'")
+	}
+
+}
+
+func (db *SafeDB) EXECUTE_COMMAND(args []string) []byte {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.executeLocked(args)
 }
 
 func readCommand(reader *bufio.Reader) ([]string, error) {
@@ -298,27 +405,9 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				continue
 			}
 
-			aborted := false
-			for key, version := range versions {
-				if database.getVersion(key) != version {
-					aborted = true
-					break
-				}
-			}
-			if aborted {
-				writeResponse(conn, nullArray())
-				queue = [][]string{}
-				multi = false
-				versions = make(map[string]uint64)
-				continue
-			}
-
+			resp, _ := database.EXEC_TRANSACTION(queue, versions)
+			writeResponse(conn, resp)
 			multi = false
-			responses := []byte(arrayReply(queue))
-			for _, cmd := range queue {
-				responses = append(responses, executeCommand(cmd, database)...)
-			}
-			writeResponse(conn, responses)
 			queue = [][]string{}
 			versions = make(map[string]uint64)
 			continue
@@ -364,7 +453,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				writeResponse(conn, simpleString("QUEUED"))
 				continue
 			}
-			writeResponse(conn, executeCommand(args, database))
+			writeResponse(conn, database.EXECUTE_COMMAND(args))
 			continue
 
 		}
