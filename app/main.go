@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -418,14 +419,17 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 func main() {
 
+	portFlag := flag.String("port", "6379", "Port to listen on")
+	flag.Parse()
+
 	database := &SafeDB{
 		data:     make(map[string]entry),
 		versions: make(map[string]uint64),
 	}
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	l, err := net.Listen("tcp", "0.0.0.0:"+*portFlag)
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		fmt.Fprintf(os.Stderr, "Failed to bind to port %s: %v\n", *portFlag, err)
 		os.Exit(1)
 	}
 
