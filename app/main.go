@@ -72,7 +72,7 @@ func (db *SafeDB) watch(keys []string) map[string]uint64 {
 }
 
 // currently diverges slightly from real redis behavior
-// i.e. "+5" incriments to 6, "007" incriments to 8, int64 max overflows,
+// i.e. "+5" increments to 6, "007" increments to 8, int64 max overflows,
 // but real redis would return an error in these cases
 func (db *SafeDB) incrLocked(key string) (int, bool) {
 
@@ -206,14 +206,14 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 	}
 	x = strings.TrimSpace(x)
 	x = strings.TrimPrefix(x, "*")
-	NumberOfArgs, err := strconv.Atoi(x)
+	numArgs, err := strconv.Atoi(x)
 	if err != nil {
 		return res, err
 	}
 
 	i := 0
 
-	for i < NumberOfArgs {
+	for i < numArgs {
 		x, err := reader.ReadString('\n')
 		if err != nil {
 			return res, err
@@ -246,12 +246,12 @@ func readCommand(reader *bufio.Reader) ([]string, error) {
 
 func validate(args []string) []byte {
 
-	min, known := arity[strings.ToUpper(args[0])]
+	minArgs, known := arity[strings.ToUpper(args[0])]
 
 	if !known {
 		return errorReply("ERR unknown command '" + args[0] + "'")
 	}
-	if len(args) < min {
+	if len(args) < minArgs {
 		return errorReply("ERR wrong number of arguments for '" + args[0] + "' command")
 	}
 	return nil
@@ -442,7 +442,7 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
-		l.Close()
+		_ = l.Close()
 	}()
 
 	for {
