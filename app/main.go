@@ -2,14 +2,18 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -419,6 +423,9 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 func main() {
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	portFlag := flag.String("port", "6379", "Port to listen on")
 	flag.Parse()
 
@@ -433,14 +440,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	go func() {
+		<-ctx.Done()
+		l.Close()
+	}()
+
 	for {
 		// Accept a connection
 		conn, err := l.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				fmt.Println("Listener closed")
+				break
+			}
 			fmt.Println("Error accepting connection: ", err.Error())
 			continue
 		}
+
 		go handleConnection(conn, database)
 	}
+
+	fmt.Println("Shutting down")
 
 }
