@@ -421,6 +421,24 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 	}
 }
 
+func serve(l net.Listener, database *SafeDB) {
+
+	for {
+		// Accept a connection
+		conn, err := l.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				fmt.Println("Listener closed")
+				break
+			}
+			fmt.Println("Error accepting connection: ", err.Error())
+			continue
+		}
+
+		go handleConnection(conn, database)
+	}
+}
+
 func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -445,20 +463,7 @@ func main() {
 		_ = l.Close()
 	}()
 
-	for {
-		// Accept a connection
-		conn, err := l.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				fmt.Println("Listener closed")
-				break
-			}
-			fmt.Println("Error accepting connection: ", err.Error())
-			continue
-		}
-
-		go handleConnection(conn, database)
-	}
+	serve(l, database)
 
 	fmt.Println("Shutting down")
 
