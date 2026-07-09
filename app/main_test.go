@@ -108,5 +108,24 @@ func TestSetGet(t *testing.T) {
 
 	assertReply(t, conn, cmd("set", "foo", "bar"), "+OK\r\n")
 	assertReply(t, conn, cmd("get", "foo"), "$3\r\nbar\r\n")
+	assertReply(t, conn, cmd("get", "missing"), "$-1\r\n")
+
+}
+
+func TestIncr(t *testing.T) {
+
+	addr := startServer(t)
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	assertReply(t, conn, cmd("incr", "foo"), ":1\r\n")
+	assertReply(t, conn, cmd("incr", "foo"), ":2\r\n")
+	assertReply(t, conn, cmd("set", "s", "r"), "+OK\r\n")
+	assertReply(t, conn, cmd("incr", "s"), "-ERR value is not an integer or out of range\r\n")
+	assertReply(t, conn, cmd("incr"), "-ERR wrong number of arguments for 'INCR' command\r\n")
 
 }
