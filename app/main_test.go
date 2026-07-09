@@ -145,3 +145,50 @@ func TestExpiry(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	assertReply(t, conn, cmd("get", "k"), "$-1\r\n")
 }
+
+func TestExecAbort(t *testing.T) {
+
+	addr := startServer(t)
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("foo"), "-ERR unknown command 'foo'\r\n")
+	assertReply(t, conn, cmd("exec"), "-EXECABORT Transaction discarded because of previous errors.\r\n")
+
+}
+
+func TestExec(t *testing.T) {
+
+	addr := startServer(t)
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("set", "foo", "bar"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("get", "foo"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("exec"), "*2\r\n+OK\r\n$3\r\nbar\r\n")
+
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("set", "p", "q"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("get", "q"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("discard"), "+OK\r\n")
+	assertReply(t, conn, cmd("get", "q"), "$-1\r\n")
+
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("exec"), "*0\r\n")
+
+	assertReply(t, conn, cmd("exec"), "-ERR EXEC without MULTI\r\n")
+	assertReply(t, conn, cmd("discard"), "-ERR DISCARD without MULTI\r\n")
+
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("multi"), "-ERR MULTI calls can not be nested\r\n")
+}
