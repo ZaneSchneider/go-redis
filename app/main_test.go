@@ -129,3 +129,19 @@ func TestIncr(t *testing.T) {
 	assertReply(t, conn, cmd("incr"), "-ERR wrong number of arguments for 'INCR' command\r\n")
 
 }
+
+func TestExpiry(t *testing.T) {
+
+	addr := startServer(t)
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	assertReply(t, conn, cmd("set", "k", "v", "px", "50"), "+OK\r\n")
+	assertReply(t, conn, cmd("get", "k"), "$1\r\nv\r\n")
+	time.Sleep(100 * time.Millisecond)
+	assertReply(t, conn, cmd("get", "k"), "$-1\r\n")
+}
