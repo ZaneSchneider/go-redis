@@ -176,19 +176,44 @@ func TestExec(t *testing.T) {
 	assertReply(t, conn, cmd("set", "foo", "bar"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("get", "foo"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("exec"), "*2\r\n+OK\r\n$3\r\nbar\r\n")
-
 	assertReply(t, conn, cmd("multi"), "+OK\r\n")
 	assertReply(t, conn, cmd("set", "p", "q"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("get", "q"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("discard"), "+OK\r\n")
 	assertReply(t, conn, cmd("get", "q"), "$-1\r\n")
-
 	assertReply(t, conn, cmd("multi"), "+OK\r\n")
 	assertReply(t, conn, cmd("exec"), "*0\r\n")
-
 	assertReply(t, conn, cmd("exec"), "-ERR EXEC without MULTI\r\n")
 	assertReply(t, conn, cmd("discard"), "-ERR DISCARD without MULTI\r\n")
-
 	assertReply(t, conn, cmd("multi"), "+OK\r\n")
 	assertReply(t, conn, cmd("multi"), "-ERR MULTI calls can not be nested\r\n")
+}
+
+func TestWatchRace(t *testing.T) {
+
+	addr := startServer(t)
+
+	connA, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer connA.Close()
+
+	connB, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	defer connB.Close()
+
+	assertReply(t, connA, cmd("watch", "k"), "+OK\r\n")
+	assertReply(t, connB, cmd("set", "k", "v2"), "+OK\r\n")
+	assertReply(t, connA, cmd("multi"), "+OK\r\n")
+	assertReply(t, connA, cmd("set", "k", "v3"), "+QUEUED\r\n")
+	assertReply(t, connA, cmd("exec"), "*-1\r\n")
+
+	assertReply(t, connA, cmd("watch", "k2"), "+OK\r\n")
+	assertReply(t, connA, cmd("multi"), "+OK\r\n")
+	assertReply(t, connA, cmd("set", "k2", "v"), "+QUEUED\r\n")
+	assertReply(t, connA, cmd("exec"), "*1\r\n+OK\r\n")
+
 }
