@@ -176,17 +176,36 @@ func TestExec(t *testing.T) {
 	assertReply(t, conn, cmd("set", "foo", "bar"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("get", "foo"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("exec"), "*2\r\n+OK\r\n$3\r\nbar\r\n")
+
 	assertReply(t, conn, cmd("multi"), "+OK\r\n")
 	assertReply(t, conn, cmd("set", "p", "q"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("get", "q"), "+QUEUED\r\n")
 	assertReply(t, conn, cmd("discard"), "+OK\r\n")
 	assertReply(t, conn, cmd("get", "q"), "$-1\r\n")
+
 	assertReply(t, conn, cmd("multi"), "+OK\r\n")
 	assertReply(t, conn, cmd("exec"), "*0\r\n")
+
 	assertReply(t, conn, cmd("exec"), "-ERR EXEC without MULTI\r\n")
 	assertReply(t, conn, cmd("discard"), "-ERR DISCARD without MULTI\r\n")
+
 	assertReply(t, conn, cmd("multi"), "+OK\r\n")
 	assertReply(t, conn, cmd("multi"), "-ERR MULTI calls can not be nested\r\n")
+	assertReply(t, conn, cmd("discard"), "+OK\r\n")
+
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("set", "foo3", "bar3"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("multi"), "-ERR MULTI calls can not be nested\r\n")
+	assertReply(t, conn, cmd("exec"), "*1\r\n+OK\r\n")
+	assertReply(t, conn, cmd("get", "foo3"), "$4\r\nbar3\r\n")
+
+	assertReply(t, conn, cmd("set", "foo2", "bar2"), "+OK\r\n")
+	assertReply(t, conn, cmd("multi"), "+OK\r\n")
+	assertReply(t, conn, cmd("incr", "foo2"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("ping"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("get", "foo2"), "+QUEUED\r\n")
+	assertReply(t, conn, cmd("exec"), "*3\r\n-ERR value is not an integer or out of range\r\n+PONG\r\n$4\r\nbar2\r\n")
+
 }
 
 func TestWatchRace(t *testing.T) {
@@ -205,15 +224,17 @@ func TestWatchRace(t *testing.T) {
 	}
 	defer connB.Close()
 
-	assertReply(t, connA, cmd("watch", "k"), "+OK\r\n")
-	assertReply(t, connB, cmd("set", "k", "v2"), "+OK\r\n")
+	assertReply(t, connA, cmd("watch", "k1", "k3"), "+OK\r\n")
+	assertReply(t, connA, cmd("watch", "k2"), "+OK\r\n")
+	assertReply(t, connB, cmd("set", "k3", "v2"), "+OK\r\n")
 	assertReply(t, connA, cmd("multi"), "+OK\r\n")
-	assertReply(t, connA, cmd("set", "k", "v3"), "+QUEUED\r\n")
+	assertReply(t, connA, cmd("set", "k3", "v3"), "+QUEUED\r\n")
 	assertReply(t, connA, cmd("exec"), "*-1\r\n")
 
-	assertReply(t, connA, cmd("watch", "k2"), "+OK\r\n")
+	assertReply(t, connA, cmd("watch", "k4"), "+OK\r\n")
 	assertReply(t, connA, cmd("multi"), "+OK\r\n")
-	assertReply(t, connA, cmd("set", "k2", "v"), "+QUEUED\r\n")
+	assertReply(t, connA, cmd("set", "k4", "v"), "+QUEUED\r\n")
+	assertReply(t, connB, cmd("set", "k6", "v"), "+OK\r\n")
 	assertReply(t, connA, cmd("exec"), "*1\r\n+OK\r\n")
 
 }
