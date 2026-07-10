@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -236,5 +239,182 @@ func TestWatchRace(t *testing.T) {
 	assertReply(t, connA, cmd("set", "k4", "v"), "+QUEUED\r\n")
 	assertReply(t, connB, cmd("set", "k6", "v"), "+OK\r\n")
 	assertReply(t, connA, cmd("exec"), "*1\r\n+OK\r\n")
+
+}
+
+func readReply(r *bufio.Reader) (string, error) {
+
+	input, err := r.ReadString('\n')
+	if err != nil {
+		return input, err
+	}
+
+	input = input[:len(input)-2]
+
+	switch input[0] {
+	case '+':
+		return input, nil
+	case '-':
+		return input, nil
+	case ':':
+		return input, nil
+
+	case '$':
+		s, _ := strconv.Atoi(input[1:])
+		if s == -1 {
+			return input, nil
+		}
+		buf := make([]byte, s+2)
+		_, err := io.ReadFull(r, buf)
+		if err != nil {
+			return input, err
+		}
+		return input, nil
+
+	case '*':
+		s, _ := strconv.Atoi(input[1:])
+		if s == -1 {
+			return input, nil
+		}
+
+		for range s {
+
+			_, err := readReply(r)
+			if err != nil {
+				return input, err
+			}
+		}
+
+		return input, nil
+
+	default:
+
+		return input, fmt.Errorf("bad reply type %q", input)
+
+	}
+
+}
+
+func stressWriter(addr string, id, iters int, keys []string) error {
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+
+	for i := 0; i < iters; i++ {
+
+		k := keys[(id+i)%len(keys)]
+
+		_, err := conn.Write([]byte(cmd("set", k, "1")))
+		if err != nil {
+			return err
+		}
+		_, err = readReply(r)
+		if err != nil {
+			return err
+		}
+
+		_, err = conn.Write([]byte(cmd("incr", k)))
+		if err != nil {
+			return err
+		}
+		_, err = readReply(r)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func stressReader(addr string, id, iters int, keys []string) error {
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+
+	for i := 0; i < iters; i++ {
+
+		k := keys[(id+i)%len(keys)]
+
+		_, err := conn.Write([]byte(cmd("watch", k)))
+		if err != nil {
+			return err
+		}
+		_, err = readReply(r)
+		if err != nil {
+			return err
+		}
+
+		_, err = conn.Write([]byte(cmd("multi")))
+		if err != nil {
+			return err
+		}
+		_, err = readReply(r)
+		if err != nil {
+			return err
+		}
+
+		_, err = conn.Write([]byte(cmd("incr", k)))
+		if err != nil {
+			return err
+		}
+		_, err = readReply(r)
+		if err != nil {
+			return err
+		}
+
+		_, err = conn.Write([]byte(cmd("exec")))
+		if err != nil {
+			return err
+		}
+		_, err = readReply(r)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func TestConcStressor(t *testing.T) {
+
+	addr := startServer(t)
+
+	n := 8
+	keys := []string{"k1", "k2", "k3", "k4"}
+	iters := 200
+	errs := make([]error, n)
+
+	var wg sync.WaitGroup
+	for id := 0; id < n; id++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			if id%2 == 0 {
+				err := stressWriter(addr, id, iters, keys)
+				errs[id] = err
+
+			} else {
+				err := stressReader(addr, id, iters, keys)
+				errs[id] = err
+
+			}
+		}(id)
+	}
+	wg.Wait()
+
+	for id := range errs {
+
+		if errs[id] != nil {
+			t.Errorf("worker %d: %v", id, errs[id])
+		}
+	}
 
 }
