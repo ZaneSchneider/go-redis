@@ -8,7 +8,7 @@ on:
     
 permissions:
   contents: read
-  
+
 jobs:
 
   build:
@@ -22,7 +22,7 @@ jobs:
         go-version-file: go.mod
 
     - name: Build
-      run: go build -v ./...
+      run: go build -v -o /tmp/redis-server ./app
 
     - name: Test
       run: go test -race -v ./...
