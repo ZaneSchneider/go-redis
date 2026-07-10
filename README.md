@@ -1,5 +1,7 @@
 # go-redis
 
+[![Go](https://github.com/ZaneSchneider/go-redis/actions/workflows/ci.yml/badge.svg)](https://github.com/ZaneSchneider/go-redis/actions/workflows/ci.yml)
+
 A Redis-compatible in-memory data store written from scratch in Go, using only the standard library. The wire protocol, concurrency model, and transaction semantics are implemented by hand.
 
 ## Implemented

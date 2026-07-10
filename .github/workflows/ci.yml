@@ -21,6 +21,12 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: goFmt
+      run: test -z "$(gofmt -l .)"
+
+    - name: Vet
+      run: go vet ./...
+
     - name: Build
       run: go build -v -o /tmp/redis-server ./app
 
