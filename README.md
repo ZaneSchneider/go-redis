@@ -28,7 +28,7 @@ redis-cli GET language
 
 ## Design notes
 
-- **Concurrency model.** Each client connection gets its own goroutine; shared state sits behind a mutex. Single commands lock per operation, while `EXEC` holds the lock for the entire transaction — approximating the atomicity real Redis gets from single-threaded execution.
+- **Concurrency model.** Each client connection gets its own goroutine; shared state sits behind a mutex. Single commands lock per operation, while `EXEC` holds the lock for the entire transaction, approximating the atomicity real Redis gets from single-threaded execution.
 - **WATCH via version counters.** Every write (including a lazy-expiry delete) bumps a per-key version. `WATCH` snapshots versions; `EXEC` aborts on any mismatch. Counters only increment, so the check is immune to ABA problems.
 - **Parsing.** Commands are decoded from a buffered TCP stream with length-prefixed reads.
 
