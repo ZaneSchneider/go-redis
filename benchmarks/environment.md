@@ -1,7 +1,9 @@
 # Benchmark environment & provenance
 
-Recorded 2026-07-10 on `zane-desktop`. Captures the exact machine, toolchain, and
-build that produced the benchmark numbers so the results are reproducible.
+Recorded 2026-07-12 on `zane-desktop` for the re-baseline runs. Captures the exact
+machine, toolchain, and build that produced the benchmark numbers so the results are
+reproducible. (The original 2026-07-10 dataset is archived under `v1-unpinned/` —
+see the note at the bottom.)
 
 ## Hardware
 - CPU: AMD Ryzen 5 3600X — 6 cores / 12 threads (1 socket)
@@ -18,21 +20,28 @@ build that produced the benchmark numbers so the results are reproducible.
 
 ## Under test: go-redis
 - Go toolchain: go1.26.0 linux/amd64
-- Commit: 5daf870
+- Commit: f3897cd
 - Build: `go build -o /tmp/go-redis ./app` — plain build, race detector OFF
   (CI builds with `-race`; the benchmark binary must not, or the numbers measure the detector)
 
 ## Benchmark tool
 - redis-benchmark 8.0.5 (redis-tools)
 - Transport: loopback — both servers on localhost
-- Test set: SET, GET, INCR, PING (the commands go-redis implements)
+- Test set: SET, GET (the commands the harness sweeps)
 - Methodology: median-of-3 per cell; one server benchmarked at a time
+- Requests per cell scaled so every run lasts multiple seconds:
+  `-n 500000` at P1, `-n 2000000` at P8, `-n 5000000` at P32;
+  `-n 1000000` for all concurrency cells
 
 ## Stability
-- CPU governor: `schedutil` (dynamic frequency scaling — clocks vary with load)
-- Frequency boost: enabled. CPU range 2200–4409 MHz; `lscpu` reported "scaling MHz: 58%"
-  at capture, confirming cores were not sitting at max clock.
-- Action before runs: pin the `performance` governor so cores hold a fixed clock —
-  `echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor`
-  (or `sudo cpupower frequency-set -g performance` if `linux-tools` is installed).
-  Record the governor used for each run set; a fixed clock is what keeps the median-of-3 tight.
+- CPU governor: pinned to `performance` for the full duration by `run.sh` — the script
+  saves the prior governor, registers a trap that restores it on any exit (normal,
+  Ctrl-C, or kill), and records the active governor to `run_metadata.txt` at run time
+- Frequency boost: still enabled (CPU range 2200–4409 MHz), so some turbo variance
+  remains; mitigated by the longer per-cell runs above
+
+## Prior dataset: v1-unpinned/
+The CSVs under `v1-unpinned/` are the original 2026-07-10 runs (commit `5daf870`):
+`schedutil` governor with boost, and a flat `-n 100000`, which finished the fastest
+cells in under a second and produced wide run-to-run spread. Superseded by the
+re-baseline described above; kept for history.
