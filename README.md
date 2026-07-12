@@ -42,4 +42,4 @@ Integration test suite in CI, configuration and graceful shutdown, Docker packag
 
 ## Attribution
 
-Started from the [CodeCrafters](https://codecrafters.io) "Build Your Own Redis" challenge, which I used as a stage roadmap. The implementation and tests are my own.
+Started from the [CodeCrafters](https://codecrafters.io) "Build Your Own Redis" challenge, which I used as a stage roadmap.
