@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -445,7 +448,15 @@ func main() {
 	defer stop()
 
 	portFlag := flag.String("port", "6379", "Port to listen on")
+	pprofFlag := flag.String("pprof", "", "pprof flag")
 	flag.Parse()
+
+	if *pprofFlag != "" {
+
+		go http.ListenAndServe(*pprofFlag, nil)
+		runtime.SetMutexProfileFraction(1)
+
+	}
 
 	database := &SafeDB{
 		data:     make(map[string]entry),
