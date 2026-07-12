@@ -33,6 +33,7 @@ for s in 6379 6380; do
         *)  n=5000000 ;;
       esac
       for cmd in set get; do
+        echo "[$(date +%H:%M:%S)] pipelining: port $s  run $run  P$p  $cmd"
         redis-benchmark -p $s -t $cmd -P $p -n $n -c 1 --csv >> pipelining/${cmd}_${s}_P${p}.csv
       done
     done
@@ -43,6 +44,7 @@ for s in 6379 6380; do
   for run in 1 2 3; do
     for cmd in set get; do
       for c in 1 10 50 100; do
+        echo "[$(date +%H:%M:%S)] concurrency: port $s  run $run  c$c  $cmd"
         redis-benchmark -p $s -t $cmd -P 1 -n 1000000 -c $c --csv >> concurrency/${cmd}_${s}_c${c}.csv
       done
     done
@@ -53,6 +55,7 @@ for s in 6379 6380; do
   for run in 1 2 3; do
     for cmd in set get; do
       for c in 1 10 50 100; do
+        echo "[$(date +%H:%M:%S)] concurrency-threaded: port $s  run $run  c$c  $cmd"
         redis-benchmark -p $s -t $cmd -P 1 -n 1000000 --threads 4 -c $c --csv >> concurrency-threaded/${cmd}_${s}_c${c}.csv
       done
     done
