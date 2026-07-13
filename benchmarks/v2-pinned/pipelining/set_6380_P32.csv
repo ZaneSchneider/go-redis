@@ -1,0 +1,6 @@
+"test","rps","avg_latency_ms","min_latency_ms","p50_latency_ms","p95_latency_ms","p99_latency_ms","max_latency_ms"
+"SET","612070.06","0.048","0.040","0.047","0.055","0.071","2.279"
+"test","rps","avg_latency_ms","min_latency_ms","p50_latency_ms","p95_latency_ms","p99_latency_ms","max_latency_ms"
+"SET","616142.94","0.047","0.032","0.047","0.055","0.071","1.391"
+"test","rps","avg_latency_ms","min_latency_ms","p50_latency_ms","p95_latency_ms","p99_latency_ms","max_latency_ms"
+"SET","609904.88","0.048","0.040","0.047","0.055","0.071","2.991"

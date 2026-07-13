@@ -2,7 +2,6 @@ FROM golang:1.26 AS builder
 
 WORKDIR /src
 
-COPY go.mod ./
 COPY . . 
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /redis-server ./app

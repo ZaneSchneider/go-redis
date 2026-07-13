@@ -1,9 +1,8 @@
 # Benchmark environment & provenance
 
-Recorded 2026-07-12 on `zane-desktop` for the re-baseline runs. Captures the exact
-machine, toolchain, and build that produced the benchmark numbers so the results are
-reproducible. (The original 2026-07-10 dataset is archived under `v1-unpinned/` —
-see the note at the bottom.)
+Recorded July 2026 on `zane-desktop`. Captures the machine, toolchain, and builds
+behind every dataset in this directory so the results are reproducible. Three
+datasets exist — see **Datasets** at the bottom; `v2-pinned/` is canonical.
 
 ## Hardware
 - CPU: AMD Ryzen 5 3600X — 6 cores / 12 threads (1 socket)
@@ -20,7 +19,8 @@ see the note at the bottom.)
 
 ## Under test: go-redis
 - Go toolchain: go1.26.0 linux/amd64
-- Commit: f3897cd
+- Commit: per dataset — each directory's `run_metadata.txt` records the exact
+  commit, governor, and date at run time (see Datasets)
 - Build: `go build -o /tmp/go-redis ./app` — plain build, race detector OFF
   (CI builds with `-race`; the benchmark binary must not, or the numbers measure the detector)
 
@@ -32,6 +32,8 @@ see the note at the bottom.)
 - Requests per cell scaled so every run lasts multiple seconds:
   `-n 500000` at P1, `-n 2000000` at P8, `-n 5000000` at P32;
   `-n 1000000` for all concurrency cells
+- Third sweep: the same concurrency cells driven by a multi-threaded client
+  (`--threads 4`) — retained as data; full analysis is future work
 
 ## Stability
 - CPU governor: pinned to `performance` for the full duration by `run.sh` — the script
@@ -40,8 +42,16 @@ see the note at the bottom.)
 - Frequency boost: still enabled (CPU range 2200–4409 MHz), so some turbo variance
   remains; mitigated by the longer per-cell runs above
 
-## Prior dataset: v1-unpinned/
-The CSVs under `v1-unpinned/` are the original 2026-07-10 runs (commit `5daf870`):
-`schedutil` governor with boost, and a flat `-n 100000`, which finished the fastest
-cells in under a second and produced wide run-to-run spread. Superseded by the
-re-baseline described above; kept for history.
+## Datasets
+
+- `v1-unpinned/` — 2026-07-10, commit `5daf870`. `schedutil` governor, flat
+  `-n 100000`; the fastest cells finished in under a second and spread widely
+  run-to-run. Superseded; kept for history.
+- `v1-pinned/` — 2026-07-12, commit `3eeb10a`. Pinned governor, scaled `-n`
+  (methodology above). The pre-fix baseline.
+- `v2-pinned/` — 2026-07-12, commit `c4e374d`. Identical harness, after the
+  buffered-writer change (replies batched, flushed before blocking reads).
+  Canonical results.
+
+`run_metadata.txt` in each directory is written by `run.sh` at run time
+(`v1-unpinned` predates the mechanism).
