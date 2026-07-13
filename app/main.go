@@ -288,15 +288,6 @@ func errorReply(s string) []byte {
 	return []byte(fmt.Sprintf("-%s\r\n", s))
 }
 
-func writeResponse(conn net.Conn, data []byte) bool {
-	_, err := conn.Write(data)
-	if err != nil {
-		fmt.Println("Error writing response: ", err.Error())
-		return false
-	}
-	return true
-}
-
 func handleConnection(conn net.Conn, database *SafeDB) {
 
 	defer conn.Close()
@@ -311,8 +302,17 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 	var multi bool = false
 	var dirty bool = false
 	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	defer writer.Flush()
 
 	for {
+
+		if reader.Buffered() == 0 {
+			err := writer.Flush()
+			if err != nil {
+				break
+			}
+		}
 
 		args, err := readCommand(reader)
 		if err != nil {
@@ -330,23 +330,23 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "MULTI":
 			if multi {
-				writeResponse(conn, errorReply("ERR MULTI calls can not be nested"))
+				writer.Write(errorReply("ERR MULTI calls can not be nested"))
 				continue
 			}
 			multi = true
 			dirty = false
 			queue = [][]string{}
-			writeResponse(conn, simpleString("OK"))
+			writer.Write(simpleString("OK"))
 			continue
 
 		case "EXEC":
 			if !multi {
-				writeResponse(conn, errorReply("ERR EXEC without MULTI"))
+				writer.Write(errorReply("ERR EXEC without MULTI"))
 				continue
 			}
 
 			if dirty {
-				writeResponse(conn, errorReply("EXECABORT Transaction discarded because of previous errors."))
+				writer.Write(errorReply("EXECABORT Transaction discarded because of previous errors."))
 				multi = false
 				dirty = false
 				queue = [][]string{}
@@ -355,7 +355,7 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 			}
 
 			resp := database.execTransaction(queue, versions)
-			writeResponse(conn, resp)
+			writer.Write(resp)
 			multi = false
 			dirty = false
 			queue = [][]string{}
@@ -364,23 +364,23 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 
 		case "DISCARD":
 			if !multi {
-				writeResponse(conn, errorReply("ERR DISCARD without MULTI"))
+				writer.Write(errorReply("ERR DISCARD without MULTI"))
 				continue
 			}
 			multi = false
 			dirty = false
 			queue = [][]string{}
 			versions = make(map[string]uint64)
-			writeResponse(conn, simpleString("OK"))
+			writer.Write(simpleString("OK"))
 			continue
 
 		case "WATCH":
 			if len(args) < 2 {
-				writeResponse(conn, errorReply("ERR wrong number of arguments for 'WATCH' command"))
+				writer.Write(errorReply("ERR wrong number of arguments for 'WATCH' command"))
 				continue
 			}
 			if multi {
-				writeResponse(conn, errorReply("ERR WATCH inside MULTI is not allowed"))
+				writer.Write(errorReply("ERR WATCH inside MULTI is not allowed"))
 				continue
 			}
 
@@ -390,16 +390,16 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				}
 			}
 
-			writeResponse(conn, simpleString("OK"))
+			writer.Write(simpleString("OK"))
 			continue
 
 		case "UNWATCH":
 			if multi {
-				writeResponse(conn, errorReply("ERR UNWATCH inside MULTI is not allowed"))
+				writer.Write(errorReply("ERR UNWATCH inside MULTI is not allowed"))
 				continue
 			}
 			versions = make(map[string]uint64)
-			writeResponse(conn, simpleString("OK"))
+			writer.Write(simpleString("OK"))
 			continue
 
 		default:
@@ -408,15 +408,15 @@ func handleConnection(conn net.Conn, database *SafeDB) {
 				err := validate(args)
 				if err != nil {
 					dirty = true
-					writeResponse(conn, err)
+					writer.Write(err)
 					continue
 				}
 
 				queue = append(queue, args)
-				writeResponse(conn, simpleString("QUEUED"))
+				writer.Write(simpleString("QUEUED"))
 				continue
 			}
-			writeResponse(conn, database.executeCommand(args))
+			writer.Write(database.executeCommand(args))
 			continue
 
 		}
